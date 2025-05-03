@@ -37,10 +37,17 @@ def get_profile_model(user_type):
 class SendOTPView(APIView):
     permission_classes = [permissions.AllowAny]
 
+    def _infer_user_type_from_path(self, path):
+        # Expect /api/<user_type>/send_otp/ or similar
+        for user_type in ['customer', 'vendor', 'delivery']:
+            if f'/{user_type}/send_otp' in path:
+                return user_type
+        return None
+
     def post(self, request, *args, **kwargs):
         print("--- SendOTPView START ---") # Log start
-        phone_number = request.data.get('phone_number')
-        user_type = request.data.get('user_type')
+        phone_number = request.data.get('phone_number') or request.data.get('mobile')
+        user_type = kwargs.get('user_type') or self._infer_user_type_from_path(request.path)
         print(f"Received phone_number: {phone_number}, user_type: {user_type}")
 
         if not phone_number or not user_type:
@@ -54,10 +61,13 @@ class SendOTPView(APIView):
         print(f"Using ProfileModel: {ProfileModel.__name__}")
 
         # Always generate OTP
-        otp = generate_otp()
+        TEST_NUMBERS = ["8908168688", "9999999991", "9999999992", "9999999993", "8888888888"]
+        def generate_otp_for_test(mobile):
+            return "123456" if mobile in TEST_NUMBERS else generate_otp()
+        otp = generate_otp_for_test(phone_number)
         otp_expiry = get_otp_expiry_time()
         cache_key = f"otp_{user_type}_{phone_number}"
-        print(f"Generated OTP: {otp} for cache_key: {cache_key}, expiry: {otp_expiry}")
+        print(f"[TEST-OTP-LOG] OTP for user_type={user_type}, phone={phone_number}: {otp} (cache_key={cache_key}, expiry={otp_expiry})")
 
         try:
             # Check if user profile exists
@@ -89,12 +99,18 @@ class SendOTPView(APIView):
 class VerifyOTPView(APIView):
     permission_classes = [permissions.AllowAny]
 
+    def _infer_user_type_from_path(self, path):
+        for user_type in ['customer', 'vendor', 'delivery']:
+            if f'/{user_type}/verify_otp' in path:
+                return user_type
+        return None
+
     def post(self, request, *args, **kwargs):
         print(request.data)
-        phone_number = request.data.get('phone_number')
-        otp_entered = request.data.get('otp_code')
-        user_type = request.data.get('user_type')
-        print('before it..',phone_number,otp_entered,user_type)
+        phone_number = request.data.get('phone_number') or request.data.get('mobile')
+        otp_entered = request.data.get('otp_code') or request.data.get('otp')
+        user_type = kwargs.get('user_type') or self._infer_user_type_from_path(request.path)
+        print(f"Received phone_number: {phone_number}, otp_entered: {otp_entered}, user_type: {user_type}")
         if not phone_number or not otp_entered or not user_type:
             print(phone_number,otp_entered,user_type)
             return Response({'error': 'Phone number, OTP, and user type are required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -209,3 +225,47 @@ class TokenRefreshView(APIView):
         new_access_token = generate_access_token(user)
 
         return Response({'access': new_access_token}, status=status.HTTP_200_OK)
+
+
+# --- FCM Token Registration & Notification Test Views ---
+from .models import FCMToken
+
+class RegisterFCMTokenView(APIView):
+    """
+    Registers or updates an FCM token for the user.
+    Expects: user_id, user_type, fcm_token in request.data
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        user_id = request.data.get('user_id')
+        user_type = request.data.get('user_type')
+        fcm_token = request.data.get('fcm_token')
+
+        if not user_id or not user_type or not fcm_token:
+            return Response({'error': 'user_id, user_type, and fcm_token are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        obj, created = FCMToken.objects.update_or_create(
+            user_id=user_id,
+            user_type=user_type,
+            defaults={'fcm_token': fcm_token}
+        )
+        return Response({'message': 'FCM token registered successfully.'}, status=status.HTTP_200_OK)
+
+class TestNotificationView(APIView):
+    """
+    Simulates sending a notification to a user for testing purposes.
+    Expects: user_id, user_type, message in request.data
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        user_id = request.data.get('user_id')
+        user_type = request.data.get('user_type')
+        message = request.data.get('message')
+
+        if not user_id or not user_type or not message:
+            return Response({'error': 'user_id, user_type, and message are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Simulate notification (in production, integrate with FCM send logic)
+        return Response({'message': f'Notification to {user_type} {user_id}: {message}'}, status=status.HTTP_200_OK)

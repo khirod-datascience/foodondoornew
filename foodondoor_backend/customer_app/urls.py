@@ -27,7 +27,10 @@ from .views import (
 )
 
 urlpatterns = [
-    path('complete-signup/', CustomerCompleteSignupView.as_view(), name='customer-complete-signup'), 
+    path('home/', CustomerBannersView.as_view(), name='customer-home'),
+    path('restaurants/', NearbyRestaurantsView.as_view(), name='customer-restaurants'),
+    path('restaurants/<int:pk>/', RestaurantDetailView.as_view(), name='restaurant-detail'),
+    path('signup/', CustomerCompleteSignupView.as_view(), name='customer-signup'), 
     path('profile/', CustomerProfileView.as_view(), name='customer-profile'),
     path('profile/update/', CustomerProfileUpdateView.as_view(), name='customer-profile-update'),
     path('banners/', CustomerBannersView.as_view(), name='customer-banners'),
@@ -43,7 +46,7 @@ urlpatterns = [
     path('addresses/add/', CustomerAddressAddView.as_view(), name='customer-address-add'),
     path('addresses/<int:pk>/update/', CustomerAddressUpdateView.as_view(), name='customer-address-update'),
     path('addresses/<int:pk>/delete/', CustomerAddressDeleteView.as_view(), name='customer-address-delete'),
-    path('place-order/', CustomerPlaceOrderView.as_view(), name='customer-place-order'),
+    path('order/place/', CustomerPlaceOrderView.as_view(), name='customer-order-place'),
     path('orders/', CustomerOrderListView.as_view(), name='customer-order-list'),
     path('orders/<int:pk>/', CustomerOrderDetailView.as_view(), name='customer-order-detail'), 
     path('orders/<int:pk>/status/', CustomerOrderStatusView.as_view(), name='customer-order-status'),

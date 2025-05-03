@@ -57,18 +57,25 @@ class JWTAuthentication(authentication.BaseAuthentication):
             raise exceptions.AuthenticationFailed(f'Invalid user type specified in token: {user_type_str}')
 
         try:
-            user = UserModel.objects.get(pk=user_id)
+            profile = UserModel.objects.get(pk=user_id)
         except UserModel.DoesNotExist:
             raise exceptions.AuthenticationFailed(f'{user_type_str} not found for the given token.')
 
+        # All profiles must have a related Django user
+        user = getattr(profile, 'user', None)
+        if user is None:
+            raise exceptions.AuthenticationFailed(f'{user_type_str} does not have a related user account.')
         if not user.is_active:
             raise exceptions.AuthenticationFailed(f'{user_type_str} account is inactive.')
 
         # For Vendor and DeliveryAgent, also check if approved (adjust if approval logic changes)
-        if hasattr(user, 'is_approved') and not user.is_approved:
-             raise exceptions.AuthenticationFailed(f'{user_type_str} account is not approved.')
+        if hasattr(profile, 'is_approved') and not profile.is_approved:
+            raise exceptions.AuthenticationFailed(f'{user_type_str} account is not approved.')
 
-        # Authentication successful, return user and token payload
-        # request.user will be the specific profile instance (CustomerProfile, VendorProfile, etc.)
-        # request.auth will be the decoded token payload
+        # Attach the profile to the request for easy access in views
+        # DRF sets request.user to the returned user
+        # We'll attach the profile as request.vendor_profile, request.customer_profile, etc.
+        # This requires a middleware or monkeypatch, but for now, views can access request.auth for the payload
+        request.profile = profile
+
         return (user, payload)

@@ -1,0 +1,125 @@
+{
+  "summary": "Most endpoints failed due to 404 (Not Found) or 403 (Forbidden). Only the permission test for Customer Access Vendor API passed. This indicates missing or misconfigured URLs and/or authentication issues.",
+  "details": [
+    {
+      "endpoint": "http://127.0.0.1:8000/api/customer/send_otp/",
+      "test": "Customer Send OTP",
+      "result": "FAILED",
+      "reason": "404 Not Found — The endpoint is missing from Django URLs."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/customer/verify_otp/",
+      "test": "Customer Verify OTP",
+      "result": "FAILED",
+      "reason": "404 Not Found — The endpoint is missing from Django URLs."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/customer/home/",
+      "test": "Customer Home",
+      "result": "FAILED",
+      "reason": "404 Not Found — The endpoint is missing from Django URLs."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/customer/cart/add/",
+      "test": "Customer Cart Add",
+      "result": "FAILED",
+      "reason": "403 Forbidden — Likely authentication or permission issue."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/customer/cart/",
+      "test": "Customer Cart View",
+      "result": "FAILED",
+      "reason": "403 Forbidden — Likely authentication or permission issue."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/customer/order/place/",
+      "test": "Customer Place Order",
+      "result": "FAILED",
+      "reason": "403 Forbidden — Likely authentication or permission issue."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/customer/orders/",
+      "test": "Customer Order History",
+      "result": "FAILED",
+      "reason": "403 Forbidden — Likely authentication or permission issue."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/vendor/send_otp/",
+      "test": "Vendor Send OTP",
+      "result": "FAILED",
+      "reason": "404 Not Found — The endpoint is missing from Django URLs."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/vendor/verify_otp/",
+      "test": "Vendor Verify OTP",
+      "result": "FAILED",
+      "reason": "404 Not Found — The endpoint is missing from Django URLs."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/vendor/profile/",
+      "test": "Vendor Profile",
+      "result": "FAILED",
+      "reason": "403 Forbidden — Likely authentication or permission issue."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/vendor/menu/",
+      "test": "Vendor Menu List",
+      "result": "FAILED",
+      "reason": "403 Forbidden — Likely authentication or permission issue."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/vendor/orders/",
+      "test": "Vendor Orders",
+      "result": "FAILED",
+      "reason": "403 Forbidden — Likely authentication or permission issue."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/delivery/send_otp/",
+      "test": "Delivery Send OTP",
+      "result": "FAILED",
+      "reason": "404 Not Found — The endpoint is missing from Django URLs."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/delivery/verify_otp/",
+      "test": "Delivery Verify OTP",
+      "result": "FAILED",
+      "reason": "404 Not Found — The endpoint is missing from Django URLs."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/delivery/orders/",
+      "test": "Delivery Orders",
+      "result": "FAILED",
+      "reason": "403 Forbidden — Likely authentication or permission issue."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/delivery/history/",
+      "test": "Delivery History",
+      "result": "FAILED",
+      "reason": "403 Forbidden — Likely authentication or permission issue."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/common/register_fcm_token/",
+      "test": "Register FCM Token",
+      "result": "FAILED",
+      "reason": "404 Not Found — The endpoint is missing from Django URLs."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/common/test_notification/",
+      "test": "Test Notification",
+      "result": "FAILED",
+      "reason": "404 Not Found — The endpoint is missing from Django URLs."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/vendor/orders/",
+      "test": "Customer Access Vendor API",
+      "result": "PASSED",
+      "reason": "Correctly blocked customer from accessing vendor endpoint."
+    },
+    {
+      "endpoint": "http://127.0.0.1:8000/api/customer/cart/add/",
+      "test": "Missing Fields in Cart Add",
+      "result": "FAILED",
+      "reason": "403 Forbidden — Likely authentication or permission issue."
+    }
+  ]
+}

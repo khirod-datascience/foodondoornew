@@ -16,14 +16,27 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from rest_framework import permissions
+from drf_yasg.views import get_schema_view
+from drf_yasg import openapi
+
+schema_view = get_schema_view(
+    openapi.Info(
+        title="Foodondoor API",
+        default_version='v1',
+        description="API documentation for Foodondoor Backend",
+    ),
+    public=True,
+    permission_classes=(permissions.AllowAny,),
+)
 from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
 
-    # Include core app URLs (assuming they exist and handle OTP)
-    path('api/core/', include('core.urls')), 
+    # Include core app URLs (handles OTP and common endpoints)
+    path('api/', include('core.urls')), 
     
     # Include customer app URLs
     path('api/customer/', include('customer_app.urls')), 
@@ -33,6 +46,9 @@ urlpatterns = [
 
     # Include delivery_app URLs
     path('api/delivery/', include('delivery_app.urls')),
+    
+    path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
+    path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 ]
 
 # Serve media files during development

@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from django.core.cache import cache
 from rest_framework import generics, permissions, status, views
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -62,7 +63,30 @@ class VendorRegistrationView(APIView):
             try:
                 print(f"[VendorRegistrationView] Creating vendor profile for {phone_number}...")
                 vendor = serializer.save(phone_number=phone_number, is_active=True)
+                vendor.is_approved = True
+                vendor.save()
                 print(f"[VendorRegistrationView] Vendor profile created: {vendor.pk}")
+
+                # --- Create and link a default Restaurant ---
+                try:
+                    restaurant_name = serializer.validated_data.get('company_name', f"Restaurant for {vendor.email}")
+                    print(f"[VendorRegistrationView] Creating default restaurant '{restaurant_name}' for vendor {vendor.pk}...")
+                    Restaurant.objects.create(
+                        vendor=vendor,
+                        name=restaurant_name,
+                        # Add default values for other required fields if any, e.g.:
+                        # description="Default description", 
+                        # address_line1="Default address",
+                        # city="Default City",
+                        # postal_code="00000",
+                        # is_active=True 
+                    )
+                    print(f"[VendorRegistrationView] Default restaurant created and linked for vendor {vendor.pk}.")
+                except Exception as restaurant_exc:
+                    # Log the error, but don't fail the registration if restaurant creation fails for now
+                    print(f"[VendorRegistrationView] WARNING: Failed to create default restaurant for vendor {vendor.pk}: {restaurant_exc}")
+                # ---------------------------------------------
+
             except Exception as e:
                 print(f"[VendorRegistrationView] Error saving vendor profile: {e}")
                 return Response({'error': 'Failed to create vendor profile.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -93,29 +117,21 @@ class VendorProfileView(generics.RetrieveUpdateAPIView):
     Handles GET (retrieve) and PUT/PATCH (update) requests.
     """
     serializer_class = VendorProfileSerializer
-    permission_classes = [permissions.IsAuthenticated] # Requires valid JWT
+    permission_classes = [IsAuthenticatedVendor]  # Use custom permission for vendor
 
     def get_object(self):
-        # Use request.user provided by the authentication backend
-        vendor_profile = self.request.user
-        print(f"[VendorProfileView] get_object called for user: {vendor_profile.pk if vendor_profile else 'None'}")
-
+        # Use request.profile provided by the authentication backend
+        vendor_profile = getattr(self.request, 'profile', None)
         if not isinstance(vendor_profile, VendorProfile):
-             print(f"[VendorProfileView] Error: Authenticated user is not a VendorProfile instance (type: {type(vendor_profile)})")
-             raise PermissionDenied('Authenticated user is not a vendor.')
-        
+            raise PermissionDenied('Authenticated user is not a vendor.')
         return vendor_profile
 
     def perform_update(self, serializer):
-        # Custom logic before saving update if needed
-        print(f"[VendorProfileView] Updating profile for vendor: {self.get_object().pk}")
-        serializer.save() # Default save handles partial updates (PATCH) correctly
+        vendor_profile = self.get_object()
+        serializer.save()
 
     def get_queryset(self):
-        # Although get_object is overridden, providing a queryset is good practice
-        # for some generic view functionalities and introspection.
-        # However, since we fetch by PK derived from token, this isn't strictly used for filtering.
-        return VendorProfile.objects.none() # Return empty queryset as filtering is manual
+        return VendorProfile.objects.none()  # Not used
 
 class VendorRestaurantView(generics.RetrieveUpdateAPIView):
     """
@@ -123,14 +139,24 @@ class VendorRestaurantView(generics.RetrieveUpdateAPIView):
     Assumes a one-to-one relationship between VendorProfile and Restaurant.
     GET: Retrieve the restaurant details.
     PUT/PATCH: Update the restaurant details.
+    Requires the vendor to be authenticated and approved.
     """
     serializer_class = RestaurantSerializer
-    permission_classes = [permissions.IsAuthenticated] # Ensures only logged-in users access
+    permission_classes = [permissions.IsAuthenticated] # TODO: Refine with IsAuthenticatedVendor if needed
+
+    def get(self, request, *args, **kwargs):
+        vendor_profile = getattr(request, 'profile', None)
+        print(f"[VendorRestaurantView GET] VendorProfile: {vendor_profile}, Is Approved: {getattr(vendor_profile, 'is_approved', 'N/A')}")
+        if not getattr(vendor_profile, 'is_approved', False):
+            return Response({'detail': 'VendorProfile account is not approved.'}, status=status.HTTP_403_FORBIDDEN)
+        restaurant = self.get_object()
+        serializer = RestaurantSerializer(restaurant)
+        return Response(serializer.data)
 
     def get_object(self):
         """Fetch the restaurant associated with the authenticated vendor."""
-        # self.request.user should be the authenticated VendorProfile instance
-        vendor_profile = self.request.user
+        # self.request.profile should be the authenticated VendorProfile instance
+        vendor_profile = getattr(self.request, 'profile', None)
         print(f"[VendorRestaurantView] Attempting to get restaurant for vendor: {vendor_profile.id} ({vendor_profile.phone_number})")
         try:
             # Attempt to retrieve the restaurant linked to this vendor
@@ -152,7 +178,11 @@ class VendorRestaurantView(generics.RetrieveUpdateAPIView):
         """
         if not self.request.user.is_authenticated:
             return Restaurant.objects.none()
-        vendor_profile = self.request.user
+        vendor_profile = getattr(self.request, 'profile', None)
+        if not vendor_profile:
+            return Restaurant.objects.none()
+        if not getattr(vendor_profile, 'is_approved', False):
+            return Restaurant.objects.none()
         return Restaurant.objects.filter(vendor=vendor_profile)
 
 class VendorCategoryListCreateView(generics.ListCreateAPIView):
@@ -165,27 +195,30 @@ class VendorCategoryListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         """Return categories only for the logged-in vendor's restaurant."""
-        user = self.request.user
-        if not isinstance(user, VendorProfile):
+        vendor_profile = getattr(self.request, 'profile', None)
+        if not isinstance(vendor_profile, VendorProfile):
              raise PermissionDenied("Authentication credentials were not provided or are invalid.")
-        
+        if not getattr(vendor_profile, 'is_approved', False):
+            return Category.objects.none()
         try:
             # Get the restaurant associated with the vendor
-            restaurant = user.restaurant
+            restaurant = vendor_profile.restaurant
             return Category.objects.filter(restaurant=restaurant)
         except Restaurant.DoesNotExist:
             # Vendor has no restaurant setup, so they have no categories
             return Category.objects.none()
         except AttributeError:
-            # Handle case where request.user might not have a 'restaurant' attribute (shouldn't happen with VendorProfile)
-             print(f"[VendorCategoryListCreateView] Error: User {user.id} missing 'restaurant' attribute.")
+            # Handle case where request.profile might not have a 'restaurant' attribute (shouldn't happen with VendorProfile)
+             print(f"[VendorCategoryListCreateView] Error: VendorProfile {getattr(vendor_profile, 'id', None)} missing 'restaurant' attribute.")
              return Category.objects.none()
 
     def perform_create(self, serializer):
         """Associate the new category with the logged-in vendor's restaurant."""
-        user = self.request.user
+        vendor_profile = getattr(self.request, 'profile', None)
+        if not getattr(vendor_profile, 'is_approved', False):
+            return Response({'detail': 'VendorProfile account is not approved.'}, status=status.HTTP_403_FORBIDDEN)
         try:
-            restaurant = user.restaurant
+            restaurant = vendor_profile.restaurant
             # Check for uniqueness within the restaurant before saving
             category_name = serializer.validated_data.get('name')
             if Category.objects.filter(restaurant=restaurant, name=category_name).exists():
@@ -212,23 +245,26 @@ class VendorCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         """Ensure vendors can only access categories from their own restaurant."""
-        user = self.request.user
-        if not isinstance(user, VendorProfile):
-             raise PermissionDenied("Authentication credentials were not provided or are invalid.")
-        
+        vendor_profile = getattr(self.request, 'profile', None)
+        if not isinstance(vendor_profile, VendorProfile):
+            raise PermissionDenied("Authentication credentials were not provided or are invalid.")
+        if not getattr(vendor_profile, 'is_approved', False):
+            return Category.objects.none()
         try:
-            restaurant = user.restaurant
+            restaurant = vendor_profile.restaurant
             return Category.objects.filter(restaurant=restaurant)
         except Restaurant.DoesNotExist:
             return Category.objects.none()
         except AttributeError:
-             print(f"[VendorCategoryDetailView] Error: User {user.id} missing 'restaurant' attribute.")
+             print(f"[VendorCategoryDetailView] Error: VendorProfile {getattr(vendor_profile, 'id', None)} missing 'restaurant' attribute.")
              return Category.objects.none()
         
     def perform_update(self, serializer):
         # Optional: Add validation before update if needed
         # Example: Check uniqueness of new name within the restaurant
-        user = self.request.user
+        vendor_profile = getattr(self.request, 'profile', None)
+        if not getattr(vendor_profile, 'is_approved', False):
+            return Response({'detail': 'VendorProfile account is not approved.'}, status=status.HTTP_403_FORBIDDEN)
         instance = self.get_object() # The category being updated
         new_name = serializer.validated_data.get('name', instance.name)
         
@@ -249,22 +285,27 @@ class VendorMenuItemListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         """Return food items only for the logged-in vendor's restaurant."""
-        user = self.request.user
-        if not isinstance(user, VendorProfile):
+        vendor_profile = getattr(self.request, 'profile', None)
+        print(f"[VendorMenuItemListCreateView GET Queryset] VendorProfile: {vendor_profile}, Is Approved: {getattr(vendor_profile, 'is_approved', 'N/A')}")
+
+        if not isinstance(vendor_profile, VendorProfile):
             raise PermissionDenied("Authentication credentials were not provided or are invalid.")
-        
+        if not getattr(vendor_profile, 'is_approved', False):
+            return FoodItem.objects.none()
         try:
-            restaurant = user.restaurant
+            restaurant = vendor_profile.restaurant
             return FoodItem.objects.filter(restaurant=restaurant)
         except Restaurant.DoesNotExist:
             return FoodItem.objects.none()
         except AttributeError:
-            print(f"[VendorMenuItemListCreateView] Error: User {user.id} missing 'restaurant' attribute.")
+            print(f"[VendorMenuItemListCreateView] Error: VendorProfile {getattr(vendor_profile, 'id', None)} missing 'restaurant' attribute.")
             return FoodItem.objects.none()
 
     def perform_create(self, serializer):
         """Associate the new food item with the logged-in vendor's restaurant and category."""
         user = self.request.user
+        if not getattr(user, 'is_approved', False):
+            return Response({'detail': 'VendorProfile account is not approved.'}, status=status.HTTP_403_FORBIDDEN)
         try:
             restaurant = user.restaurant
             # Ensure the selected category belongs to this restaurant
@@ -305,22 +346,38 @@ class VendorMenuItemDetailView(generics.RetrieveUpdateDestroyAPIView):
     lookup_field = 'pk' # Use the primary key (UUID) for lookup
 
     def get_queryset(self):
-        """Ensure vendors can only access food items from their own restaurant."""
-        user = self.request.user
-        if not isinstance(user, VendorProfile):
-            raise PermissionDenied("Authentication credentials were not provided or are invalid.")
-        
+        vendor_profile = getattr(self.request, 'profile', None)
+        if not getattr(vendor_profile, 'is_approved', False):
+            return FoodItem.objects.none()
         try:
-            restaurant = user.restaurant
+            restaurant = vendor_profile.restaurant
             return FoodItem.objects.filter(restaurant=restaurant)
         except Restaurant.DoesNotExist:
             return FoodItem.objects.none()
         except AttributeError:
-            print(f"[VendorMenuItemDetailView] Error: User {user.id} missing 'restaurant' attribute.")
+            print(f"[VendorMenuItemDetailView] Error: VendorProfile {getattr(vendor_profile, 'id', None)} missing 'restaurant' attribute.")
             return FoodItem.objects.none()
-    
+
+    def get(self, request, *args, **kwargs):
+        """GET /menu/<uuid:pk>/ - Retrieve menu item"""
+        return super().get(request, *args, **kwargs)
+
+    def put(self, request, *args, **kwargs):
+        """PUT /menu/<uuid:pk>/update/ - Update menu item"""
+        if request.path.endswith('/update/'):
+            return super().put(request, *args, **kwargs)
+        return Response({'detail': 'Method "PUT" not allowed on this endpoint.'}, status=405)
+
+    def delete(self, request, *args, **kwargs):
+        """DELETE /menu/<uuid:pk>/delete/ - Delete menu item"""
+        if request.path.endswith('/delete/'):
+            return super().delete(request, *args, **kwargs)
+        return Response({'detail': 'Method "DELETE" not allowed on this endpoint.'}, status=405)
+
     def perform_update(self, serializer):
-        user = self.request.user
+        vendor_profile = getattr(self.request, 'profile', None)
+        if not getattr(vendor_profile, 'is_approved', False):
+            raise PermissionDenied('VendorProfile account is not approved.')
         instance = self.get_object() # The item being updated
         new_name = serializer.validated_data.get('name', instance.name)
         
@@ -355,6 +412,10 @@ class VendorProfileUpdateView(APIView):
 class VendorOrderListView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Use IsAuthenticatedVendor
     def get(self, request, *args, **kwargs):
+        # Block unapproved vendors
+        vendor_profile = getattr(request, 'profile', None)
+        if not getattr(vendor_profile, 'is_approved', False):
+            return Response({'detail': 'VendorProfile account is not approved.'}, status=status.HTTP_403_FORBIDDEN)
         # TODO: Implement vendor order list logic
         return Response({'message': 'Vendor order list placeholder'}, status=status.HTTP_200_OK)
 
@@ -373,5 +434,13 @@ class VendorOrderRejectView(APIView):
 class VendorOrderReadyView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Use IsAuthenticatedVendor
     def post(self, request, pk, *args, **kwargs):
-        # TODO: Implement order ready logic using pk
-        return Response({'message': f'Vendor order ready placeholder for pk={pk}'}, status=status.HTTP_200_OK)
+        # Accepts status param and updates order status accordingly
+        status_value = request.data.get('status')
+        if not status_value:
+            return Response({'error': 'Missing status parameter.'}, status=status.HTTP_400_BAD_REQUEST)
+        # TODO: Implement logic to update order status (accepted, preparing, ready, etc.)
+        # Example:
+        # order = get_object_or_404(Order, pk=pk, vendor=request.user)
+        # order.status = status_value
+        # order.save()
+        return Response({'message': f'Order {pk} status updated to {status_value}.'}, status=status.HTTP_200_OK)

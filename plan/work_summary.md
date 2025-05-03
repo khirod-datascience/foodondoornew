@@ -516,6 +516,15 @@ This document tracks the development progress, including features implemented, c
 *   **API Endpoint Alignment:** Updated `api_constants.dart` to use the correct `vendorRegisterUrl` (`/api/vendor/auth/register/`) which has been implemented in the backend.
 *   **Service Review:** Verified `AuthService.dart` uses the correct core OTP endpoints and `signup_token` handling.
 
+---
+
+### [2025-05-03] Vendor App ProfileService Refactor (CRUD Alignment)
+
+*   **ProfileService:** Implemented real API calls for vendor profile fetch and update (getVendorProfile, updateVendorProfile).
+*   **Removed dummy data** and improved error handling for profile operations.
+*   **Plan Alignment:** Step 1 of vendor CRUD alignment with plan.md.
+*   **Next:** Restaurant and menu management CRUD fixes, then error handling improvements.
+
 ### Restaurant Profile Management
 *   **Frontend (Display):**
     *   Created `Restaurant` model (`restaurant_model.dart`).

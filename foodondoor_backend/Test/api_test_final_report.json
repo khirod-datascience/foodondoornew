@@ -1,0 +1,111 @@
+{
+  "summary": "Most endpoints are now correctly routed and the 404 errors are resolved. Notification endpoints are working (PASSED). Remaining failures are due to missing required fields (user_type) in OTP endpoints and authentication issues (403) on protected endpoints. See below for fixes required.",
+  "details": [
+    {
+      "endpoint": "/api/customer/send_otp/",
+      "result": "FAILED",
+      "reason": "400 Bad Request: Phone number and user type are required. The test must send user_type explicitly or the view should infer from URL."
+    },
+    {
+      "endpoint": "/api/customer/verify_otp/",
+      "result": "FAILED",
+      "reason": "400 Bad Request: Phone number, OTP, and user type are required. The test must send user_type explicitly or the view should infer from URL."
+    },
+    {
+      "endpoint": "/api/customer/home/",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Authentication credentials were not provided. Depends on successful OTP login."
+    },
+    {
+      "endpoint": "/api/customer/cart/add/",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Authentication credentials were not provided. Depends on successful OTP login."
+    },
+    {
+      "endpoint": "/api/customer/cart/",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Authentication credentials were not provided. Depends on successful OTP login."
+    },
+    {
+      "endpoint": "/api/customer/order/place/",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Authentication credentials were not provided. Depends on successful OTP login."
+    },
+    {
+      "endpoint": "/api/customer/orders/",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Authentication credentials were not provided. Depends on successful OTP login."
+    },
+    {
+      "endpoint": "/api/vendor/send_otp/",
+      "result": "FAILED",
+      "reason": "400 Bad Request: Phone number and user type are required."
+    },
+    {
+      "endpoint": "/api/vendor/verify_otp/",
+      "result": "FAILED",
+      "reason": "400 Bad Request: Phone number, OTP, and user type are required."
+    },
+    {
+      "endpoint": "/api/vendor/profile/",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Invalid token. Depends on successful OTP login."
+    },
+    {
+      "endpoint": "/api/vendor/menu/",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Authentication credentials were not provided."
+    },
+    {
+      "endpoint": "/api/vendor/orders/",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Authentication credentials were not provided."
+    },
+    {
+      "endpoint": "/api/delivery/send_otp/",
+      "result": "FAILED",
+      "reason": "400 Bad Request: Phone number and user type are required."
+    },
+    {
+      "endpoint": "/api/delivery/verify_otp/",
+      "result": "FAILED",
+      "reason": "400 Bad Request: Phone number, OTP, and user type are required."
+    },
+    {
+      "endpoint": "/api/delivery/orders/",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Invalid token. Depends on successful OTP login."
+    },
+    {
+      "endpoint": "/api/delivery/history/",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Authentication credentials were not provided."
+    },
+    {
+      "endpoint": "/api/common/register_fcm_token/",
+      "result": "PASSED",
+      "reason": "FCM token registered successfully."
+    },
+    {
+      "endpoint": "/api/common/test_notification/",
+      "result": "PASSED",
+      "reason": "Notification endpoint works."
+    },
+    {
+      "endpoint": "/api/vendor/orders/ (Customer Access Vendor API)",
+      "result": "PASSED",
+      "reason": "Correctly blocked customer from accessing vendor endpoint."
+    },
+    {
+      "endpoint": "/api/customer/cart/add/ (Missing Fields)",
+      "result": "FAILED",
+      "reason": "403 Forbidden: Authentication credentials were not provided."
+    }
+  ],
+  "required_fixes": [
+    "Update SendOTPView and VerifyOTPView to infer user_type from URL pattern or update test script to send user_type in the POST body.",
+    "Ensure OTP endpoints work so authentication tokens can be acquired for subsequent tests.",
+    "Review authentication and permission classes for all protected endpoints.",
+    "Rerun all tests after fixing OTP and authentication flow."
+  ]
+}

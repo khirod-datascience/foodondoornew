@@ -1,3 +1,7 @@
 from django.contrib import admin
+from .models import VendorProfile, Restaurant, Category, FoodItem
 
-# Register your models here.
+admin.site.register(VendorProfile)
+admin.site.register(Restaurant)
+admin.site.register(Category)
+admin.site.register(FoodItem)

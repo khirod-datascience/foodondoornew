@@ -103,3 +103,19 @@ class OrderItem(models.Model):
     def __str__(self):
         # Adjust __str__ if FK changes
         return f"{self.quantity} x {self.item_name_snapshot or f'MenuItem ID {self.menu_item_id_temp}'}"
+
+
+# --- FCM Token Model ---
+class FCMToken(models.Model):
+    user_id = models.CharField(max_length=64)
+    user_type = models.CharField(max_length=32)
+    fcm_token = models.CharField(max_length=255)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user_id', 'user_type')
+        verbose_name = 'FCM Token'
+        verbose_name_plural = 'FCM Tokens'
+
+    def __str__(self):
+        return f"{self.user_type} {self.user_id} -> {self.fcm_token[:10]}..."

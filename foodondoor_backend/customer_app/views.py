@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from django.core.cache import cache
 from rest_framework import generics, status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,6 +17,29 @@ from django.utils import timezone
 from django.http import Http404
 
 # Create your views here.
+
+class CustomerHomeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    def get(self, request, *args, **kwargs):
+        from vendor_app.models import Restaurant, Category, FoodItem
+        from vendor_app.serializers import RestaurantSerializer, CategorySerializer, FoodItemSerializer
+        # Example: banners can be static or fetched from a model
+        banners = [
+            {'image': '/static/banners/banner1.jpg', 'title': 'Welcome Offer'},
+            {'image': '/static/banners/banner2.jpg', 'title': 'Free Delivery'},
+        ]
+        categories = CategorySerializer(Category.objects.all(), many=True).data
+        # For demo, nearby = all restaurants (customize as needed)
+        nearby_restaurants = RestaurantSerializer(Restaurant.objects.all()[:10], many=True).data
+        top_rated_restaurants = RestaurantSerializer(Restaurant.objects.order_by('-rating')[:5], many=True).data
+        popular_foods = FoodItemSerializer(FoodItem.objects.order_by('-popularity')[:10], many=True).data if hasattr(FoodItem, 'popularity') else FoodItemSerializer(FoodItem.objects.all()[:10], many=True).data
+        return Response({
+            'banners': banners,
+            'categories': categories,
+            'nearby_restaurants': nearby_restaurants,
+            'top_rated_restaurants': top_rated_restaurants,
+            'popular_foods': popular_foods
+        }, status=status.HTTP_200_OK)
 
 class CustomerCompleteSignupView(APIView):
     permission_classes = [permissions.AllowAny] # Anyone with a valid signup token can complete registration
@@ -230,26 +254,72 @@ class FoodItemDetailView(APIView):
 class CustomerCartView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Implement IsAuthenticatedCustomer
     def get(self, request, *args, **kwargs):
-        # TODO: Implement get cart logic
-        return Response({'message': 'Get cart placeholder'}, status=status.HTTP_200_OK)
+        from core.models import Cart
+        from .serializers import CartSerializer
+        customer_id = str(request.user.id)
+        cart, created = Cart.objects.get_or_create(customer_id_temp=customer_id)
+        serializer = CartSerializer(cart)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 class CustomerCartAddView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Implement IsAuthenticatedCustomer
     def post(self, request, *args, **kwargs):
-        # TODO: Implement add to cart logic
-        return Response({'message': 'Add to cart placeholder'}, status=status.HTTP_201_CREATED)
+        from core.models import Cart, CartItem
+        from .serializers import CartSerializer
+        customer_id = str(request.user.id)
+        menu_item_id = request.data.get('menu_item_id')
+        quantity = int(request.data.get('quantity', 1))
+        if not menu_item_id or quantity < 1:
+            return Response({'error': 'menu_item_id and positive quantity required.'}, status=status.HTTP_400_BAD_REQUEST)
+        cart, _ = Cart.objects.get_or_create(customer_id_temp=customer_id)
+        cart_item, created = CartItem.objects.get_or_create(cart=cart, menu_item_id_temp=menu_item_id)
+        if not created:
+            cart_item.quantity += quantity
+        else:
+            cart_item.quantity = quantity
+        cart_item.save()
+        serializer = CartSerializer(cart)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 class CustomerCartUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Implement IsAuthenticatedCustomer
     def put(self, request, *args, **kwargs):
-        # TODO: Implement update cart logic (e.g., update quantity)
-        return Response({'message': 'Update cart placeholder'}, status=status.HTTP_200_OK)
+        from core.models import Cart, CartItem
+        from .serializers import CartSerializer
+        customer_id = str(request.user.id)
+        menu_item_id = request.data.get('menu_item_id')
+        quantity = int(request.data.get('quantity', 1))
+        if not menu_item_id or quantity < 1:
+            return Response({'error': 'menu_item_id and positive quantity required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            cart = Cart.objects.get(customer_id_temp=customer_id)
+            cart_item = CartItem.objects.get(cart=cart, menu_item_id_temp=menu_item_id)
+            cart_item.quantity = quantity
+            cart_item.save()
+            serializer = CartSerializer(cart)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except (Cart.DoesNotExist, CartItem.DoesNotExist):
+            return Response({'error': 'Cart or CartItem not found.'}, status=status.HTTP_404_NOT_FOUND)
 
 class CustomerCartRemoveView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Implement IsAuthenticatedCustomer
     def delete(self, request, *args, **kwargs):
-        # TODO: Implement remove from cart logic
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        from core.models import Cart, CartItem
+        customer_id = str(request.user.id)
+        menu_item_id = request.data.get('menu_item_id')
+        if not menu_item_id:
+            return Response({'error': 'menu_item_id required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            cart = Cart.objects.get(customer_id_temp=customer_id)
+            cart_item = CartItem.objects.get(cart=cart, menu_item_id_temp=menu_item_id)
+            cart_item.delete()
+            return Response({'message': 'Item removed from cart.'}, status=status.HTTP_200_OK)
+        except (Cart.DoesNotExist, CartItem.DoesNotExist):
+            return Response({'error': 'Cart or CartItem not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    def post(self, request, *args, **kwargs):
+        # POST support for removing cart item
+        return self.delete(request, *args, **kwargs)
 
 # --- Address Management Views ---
 
@@ -355,38 +425,116 @@ class CustomerAddressDeleteView(APIView):
 class CustomerPlaceOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Implement IsAuthenticatedCustomer
     def post(self, request, *args, **kwargs):
-        # TODO: Implement place order logic
-        return Response({'message': 'Place order placeholder'}, status=status.HTTP_201_CREATED)
+        from core.models import Cart, CartItem, Order, OrderItem
+        from .serializers import OrderSerializer
+        customer_id = str(request.user.id)
+        restaurant_id = request.data.get('restaurant_id')
+        delivery_address_id = request.data.get('delivery_address_id')
+        notes = request.data.get('notes', '')
+        # Find cart
+        try:
+            cart = Cart.objects.get(customer_id_temp=customer_id)
+            cart_items = CartItem.objects.filter(cart=cart)
+            if not cart_items.exists():
+                return Response({'error': 'Cart is empty.'}, status=status.HTTP_400_BAD_REQUEST)
+        except Cart.DoesNotExist:
+            return Response({'error': 'Cart not found.'}, status=status.HTTP_404_NOT_FOUND)
+        # Calculate total
+        total_amount = 0
+        order_items = []
+        for item in cart_items:
+            # For now, price is not fetched from FoodItem; set as 0 or extend as needed
+            price = 0
+            order_items.append({'menu_item_id_temp': item.menu_item_id_temp, 'quantity': item.quantity, 'price': price})
+        # Create Order
+        order = Order.objects.create(
+            customer_id_temp=customer_id,
+            restaurant_id_temp=restaurant_id,
+            delivery_address_id_temp=delivery_address_id,
+            total_amount=total_amount,
+            notes=notes
+        )
+        # Create OrderItems
+        for item in cart_items:
+            OrderItem.objects.create(
+                order=order,
+                menu_item_id_temp=item.menu_item_id_temp,
+                quantity=item.quantity,
+                price=0, # TODO: fetch actual price
+                item_name_snapshot='',
+                item_description_snapshot=''
+            )
+        # Clear cart
+        cart_items.delete()
+        serializer = OrderSerializer(order)
+        return Response({
+            'message': 'Order placed successfully',
+            'order_id': order.id,
+            'order': serializer.data
+        }, status=status.HTTP_201_CREATED)
 
 class CustomerOrderListView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Implement IsAuthenticatedCustomer
     def get(self, request, *args, **kwargs):
-        # TODO: Implement list orders logic
-        return Response({'message': 'List orders placeholder'}, status=status.HTTP_200_OK)
+        from core.models import Order
+        from .serializers import OrderSerializer
+        customer_id = str(request.user.id)
+        orders = Order.objects.filter(customer_id_temp=customer_id).order_by('-created_at')
+        serializer = OrderSerializer(orders, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 class CustomerOrderDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Implement IsAuthenticatedCustomer
     def get(self, request, pk, *args, **kwargs):
-        # TODO: Implement order detail logic using pk
-        return Response({'message': f'Order detail placeholder for pk={pk}'}, status=status.HTTP_200_OK)
+        from core.models import Order
+        from .serializers import OrderSerializer
+        customer_id = str(request.user.id)
+        try:
+            order = Order.objects.get(pk=pk, customer_id_temp=customer_id)
+            serializer = OrderSerializer(order)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Order.DoesNotExist:
+            return Response({'error': 'Order not found.'}, status=status.HTTP_404_NOT_FOUND)
 
 class CustomerOrderStatusView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Implement IsAuthenticatedCustomer
     def get(self, request, pk, *args, **kwargs):
-        # TODO: Implement order status logic using pk
-        return Response({'message': f'Order status placeholder for pk={pk}'}, status=status.HTTP_200_OK)
+        from core.models import Order
+        customer_id = str(request.user.id)
+        try:
+            order = Order.objects.get(pk=pk, customer_id_temp=customer_id)
+            return Response({'status': order.status}, status=status.HTTP_200_OK)
+        except Order.DoesNotExist:
+            return Response({'error': 'Order not found.'}, status=status.HTTP_404_NOT_FOUND)
 
 class CustomerOrderTrackView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Implement IsAuthenticatedCustomer
     def get(self, request, pk, *args, **kwargs):
-        # TODO: Implement order tracking logic using pk
-        return Response({'message': f'Order track placeholder for pk={pk}'}, status=status.HTTP_200_OK)
+        from core.models import Order
+        customer_id = str(request.user.id)
+        try:
+            order = Order.objects.get(pk=pk, customer_id_temp=customer_id)
+            # For demo, just return status and timestamps
+            data = {
+                'status': order.status,
+                'created_at': order.created_at,
+                'accepted_at': order.accepted_at,
+                'picked_up_at': order.picked_up_at,
+                'delivered_at': order.delivered_at
+            }
+            return Response(data, status=status.HTTP_200_OK)
+        except Order.DoesNotExist:
+            return Response({'error': 'Order not found.'}, status=status.HTTP_404_NOT_FOUND)
 
 class CustomerOrderRateView(APIView):
     permission_classes = [permissions.IsAuthenticated] # TODO: Implement IsAuthenticatedCustomer
     def post(self, request, pk, *args, **kwargs):
-        # TODO: Implement order rating logic
-        return Response({'message': 'Order rating placeholder'}, status=status.HTTP_200_OK)
+        # Placeholder: Implement order rating logic here (e.g., save rating to Order or related model)
+        rating = request.data.get('rating')
+        if rating is None:
+            return Response({'error': 'Rating is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        # For now, just acknowledge receipt
+        return Response({'message': 'Order rated successfully.'}, status=status.HTTP_200_OK)
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -394,10 +542,10 @@ from rest_framework import status
 from django.core.cache import cache
 from .models import CustomerProfile
 from core.utils import generate_access_token, generate_refresh_token # Import token generators
-import logging
+# import logging
 from rest_framework.permissions import AllowAny
 
-logger = logging.getLogger(__name__)
+
 
 class RegisterCustomerView(APIView):
     permission_classes = [AllowAny] # Allow anyone to access this view
@@ -414,31 +562,31 @@ class RegisterCustomerView(APIView):
 
         if not all([signup_token, email, first_name]):
             print("Missing required fields: signup_token, email, or first_name")
-            logger.warning("[RegisterCustomerView] Missing required fields in registration request.")
+            print("[RegisterCustomerView] Missing required fields in registration request.")
             return Response({'error': 'Missing required fields (signup_token, email, first_name are required).'}, status=status.HTTP_400_BAD_REQUEST)
 
         signup_token_cache_key = f'signup_token_{signup_token}'
         cached_data = cache.get(signup_token_cache_key)
 
         if not cached_data:
-            logger.warning(f"[RegisterCustomerView] Invalid or expired signup token received: {signup_token[:10]}...")
+            print(f"[RegisterCustomerView] Invalid or expired signup token received: {signup_token[:10]}...")
             return Response({'error': 'Invalid or expired signup token.'}, status=status.HTTP_400_BAD_REQUEST)
 
         phone_number = cached_data.get('phone_number')
         if not phone_number:
-             logger.error(f"[RegisterCustomerView] Phone number not found in cache for valid token: {signup_token[:10]}...")
+             print(f"[RegisterCustomerView] Phone number not found in cache for valid token: {signup_token[:10]}...")
              # This case indicates an internal issue during token storage
              return Response({'error': 'Internal server error during registration.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         # Check if phone number or email already exists (should ideally not happen if token logic is sound)
         if CustomerProfile.objects.filter(phone_number=phone_number).exists():
-            logger.warning(f"[RegisterCustomerView] Attempt to register with already existing phone number: {phone_number}")
+            print(f"[RegisterCustomerView] Attempt to register with already existing phone number: {phone_number}")
             # Decide how to handle: Maybe return login tokens? Or error? For now, error.
             cache.delete(signup_token_cache_key) # Clean up token
             return Response({'error': 'Phone number already registered.'}, status=status.HTTP_409_CONFLICT)
             
         if CustomerProfile.objects.filter(email__iexact=email).exists():
-             logger.warning(f"[RegisterCustomerView] Attempt to register with already existing email: {email}")
+             print(f"[RegisterCustomerView] Attempt to register with already existing email: {email}")
              # No need to delete token here, let user try again or login
              return Response({'error': 'Email address already registered.'}, status=status.HTTP_409_CONFLICT)
 
@@ -451,7 +599,7 @@ class RegisterCustomerView(APIView):
                 email=email,
                 is_active=True # Activate user upon registration
             )
-            logger.info(f"[RegisterCustomerView] Successfully created CustomerProfile for phone: {phone_number}")
+            print(f"[RegisterCustomerView] Successfully created CustomerProfile for phone: {phone_number}")
 
             # Registration successful, delete the signup token
             cache.delete(signup_token_cache_key)
@@ -469,6 +617,6 @@ class RegisterCustomerView(APIView):
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            logger.exception(f"[RegisterCustomerView] Error creating customer profile for phone {phone_number}: {e}")
+            print(f"[RegisterCustomerView] Error creating customer profile for phone {phone_number}: {e}")
             # Don't delete the token on creation failure, user might retry
             return Response({'error': 'Failed to create profile.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
